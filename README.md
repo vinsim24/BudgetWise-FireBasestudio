@@ -55,6 +55,35 @@ To run this project on your local machine, follow these steps:
     *   Open your web browser and navigate to `http://localhost:9002` to use the BudgetWise app.
     *   If Genkit is running, you can view and test your AI flows at `http://localhost:4000`.
 
+## Running with Docker
+
+This project can be built and run as a Docker container.
+
+1.  **Prerequisites**:
+    *   Ensure you have [Docker](https://www.docker.com/get-started) installed on your machine.
+
+2.  **Build the Docker Image**:
+    Navigate to the project's root directory in your terminal and run:
+    ```bash
+    docker build -t budgetwise-app .
+    ```
+    This command builds a Docker image named `budgetwise-app` using the `Dockerfile` in the current directory.
+
+3.  **Run the Docker Container**:
+    Once the image is built, you can run it as a container:
+    ```bash
+    docker run -p 3000:3000 --env-file .env budgetwise-app
+    ```
+    *   `-p 3000:3000`: This maps port 3000 of your host machine to port 3000 of the Docker container (where the Next.js app runs in production).
+    *   `--env-file .env`: This command passes environment variables from your local `.env` file to the container. This is useful for variables like `GOOGLE_API_KEY`. Ensure your `.env` file is in the root of the project when you run this command. Alternatively, you can pass variables individually using `-e VAR_NAME="value"`.
+    *   `budgetwise-app`: This is the name of the image you built.
+
+4.  **Access the Application**:
+    Open your web browser and navigate to `http://localhost:3000`.
+
+**Note on Genkit AI Flows**:
+The `Dockerfile` provided here is specifically for running the Next.js application. The Genkit AI flows (e.g., for initial budget generation) run as a separate service (`npm run genkit:dev`). To run Genkit in Docker alongside the Next.js app, you would typically use a tool like Docker Compose to manage both services. Dockerizing Genkit is not covered by this `Dockerfile`.
+
 ## Project Structure
 
 *   `src/app/`: Contains the Next.js pages and layouts (using the App Router).
@@ -66,6 +95,8 @@ To run this project on your local machine, follow these steps:
 *   `src/lib/`: Utility functions, type definitions.
 *   `public/`: Static assets.
 *   `package.json`: Project dependencies and scripts.
+*   `Dockerfile`: Instructions for building the Docker image for the Next.js app.
+*   `.dockerignore`: Specifies files to exclude from the Docker build context.
 
 ## Available Scripts
 
