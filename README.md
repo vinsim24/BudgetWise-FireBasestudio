@@ -27,24 +27,31 @@ To run this project on your local machine, follow these steps:
     ```
 
 4.  **Environment Variables**:
-    This project might use environment variables (e.g., for API keys for AI features).
+    This project uses environment variables for configuration, including connecting to MongoDB and potentially for AI features.
     *   Create a file named `.env` in the root of your project.
-    *   Add any necessary environment variables to this file. For example, if you plan to use the Genkit AI features:
+    *   Add the necessary environment variables to this file. For example:
         ```env
-        GOOGLE_API_KEY="YOUR_GOOGLE_AI_API_KEY"
+        # MongoDB Connection
+        MONGODB_URI="your_mongodb_connection_string"
+        MONGODB_DB_NAME="your_mongodb_database_name"
+
+        # Example for Genkit AI features (if you re-enable or add more)
+        # GOOGLE_API_KEY="YOUR_GOOGLE_AI_API_KEY"
         ```
-        Replace `"YOUR_GOOGLE_AI_API_KEY"` with your actual API key.
+        Replace `"your_mongodb_connection_string"` with your actual MongoDB connection URI (e.g., `mongodb://localhost:27017` or a cloud provider's URI).
+        Replace `"your_mongodb_database_name"` with the name of the database you want the application to use.
+        If you plan to use Genkit AI features, replace `"YOUR_GOOGLE_AI_API_KEY"` with your actual API key.
 
 5.  **Run the Development Servers**:
     You'll typically need to run two separate processes in two different terminal windows/tabs:
 
-    *   **Next.js Application (Frontend)**:
+    *   **Next.js Application (Frontend & Backend API)**:
         ```bash
         npm run dev
         ```
         This will start the main web application. By default, it should be accessible at `http://localhost:9002`.
 
-    *   **Genkit AI Flows (Backend for AI)**:
+    *   **Genkit AI Flows (Optional - for specific AI features)**:
         If you are using or developing AI features (like the initial budget generation), run:
         ```bash
         npm run genkit:dev
@@ -75,7 +82,7 @@ This project can be built and run as a Docker container.
     docker run -p 3000:3000 --env-file .env budgetwise-app
     ```
     *   `-p 3000:3000`: This maps port 3000 of your host machine to port 3000 of the Docker container (where the Next.js app runs in production).
-    *   `--env-file .env`: This command passes environment variables from your local `.env` file to the container. This is useful for variables like `GOOGLE_API_KEY`. Ensure your `.env` file is in the root of the project when you run this command. Alternatively, you can pass variables individually using `-e VAR_NAME="value"`.
+    *   `--env-file .env`: This command passes environment variables from your local `.env` file to the container. This is crucial for variables like `MONGODB_URI`, `MONGODB_DB_NAME`, and `GOOGLE_API_KEY`. Ensure your `.env` file is in the root of the project when you run this command. Alternatively, you can pass variables individually using `-e VAR_NAME="value"`.
     *   `budgetwise-app`: This is the name of the image you built.
 
 4.  **Access the Application**:
@@ -86,13 +93,13 @@ The `Dockerfile` provided here is specifically for running the Next.js applicati
 
 ## Project Structure
 
-*   `src/app/`: Contains the Next.js pages and layouts (using the App Router).
+*   `src/app/`: Contains the Next.js pages and layouts (using the App Router), including API routes in `src/app/api/`.
 *   `src/components/`: Shared React components.
     *   `src/components/ui/`: ShadCN UI components.
     *   `src/components/budgetwise/`: Custom components specific to the BudgetWise app.
 *   `src/ai/`: Contains Genkit AI flow definitions.
     *   `src/ai/flows/`: Specific AI flow implementations.
-*   `src/lib/`: Utility functions, type definitions.
+*   `src/lib/`: Utility functions, type definitions, and database connection logic (e.g., `src/lib/mongodb.ts`).
 *   `public/`: Static assets.
 *   `package.json`: Project dependencies and scripts.
 *   `Dockerfile`: Instructions for building the Docker image for the Next.js app.
