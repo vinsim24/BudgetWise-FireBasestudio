@@ -13,8 +13,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
 import { Save, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format, subMonths, addMonths } from 'date-fns';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat1', name: 'Rent/Mortgage', allocatedAmount: 1500, iconName: 'Home' },
@@ -24,11 +22,7 @@ const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat5', name: 'Entertainment', allocatedAmount: 200, iconName: 'Film' },
 ];
 
-const USER_ID = "defaultUser"; // Replace with actual user ID in a real app
-
-const getMonthFirestoreDocId = (userId: string, date: Date): string => {
-  return `${userId}_${format(date, 'yyyy-MM')}`;
-};
+const USER_ID = "defaultUser"; 
 
 export default function BudgetWisePage() {
   const [currentDisplayMonth, setCurrentDisplayMonth] = useState<Date>(new Date());
@@ -48,35 +42,36 @@ export default function BudgetWisePage() {
     if (!isClient) return;
     setIsLoadingData(true);
 
-    const docId = getMonthFirestoreDocId(USER_ID, monthDate);
+    const monthYear = format(monthDate, 'yyyy-MM');
     try {
-      const docRef = doc(db, "userBudgetData", docId);
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        const data = docSnap.data() as BudgetDataForMonth;
+      const response = await fetch(`/api/budget-data/user/${USER_ID}/month/${monthYear}`);
+      if (response.ok) {
+        const data = await response.json() as BudgetDataForMonth;
         setIncomes(data.incomes || []);
         setBudgetCategories(data.budgetCategories || initialBudgetCategories);
         setPayments(data.payments || []);
-      } else {
-        // New month or first load for this month
+      } else if (response.status === 404) {
         setIncomes([]);
         setPayments([]);
-        // Attempt to load budget categories from previous month
         const prevMonthDate = subMonths(monthDate, 1);
-        const prevMonthDocId = getMonthFirestoreDocId(USER_ID, prevMonthDate);
-        const prevDocRef = doc(db, "userBudgetData", prevMonthDocId);
-        const prevDocSnap = await getDoc(prevDocRef);
-        if (prevDocSnap.exists()) {
-          const prevData = prevDocSnap.data() as BudgetDataForMonth;
-          setBudgetCategories(prevData.budgetCategories || initialBudgetCategories);
-        } else {
-          setBudgetCategories(initialBudgetCategories);
+        const prevMonthYear = format(prevMonthDate, 'yyyy-MM');
+        try {
+          const prevMonthResponse = await fetch(`/api/budget-data/user/${USER_ID}/month/${prevMonthYear}`);
+          if (prevMonthResponse.ok) {
+            const prevData = await prevMonthResponse.json() as BudgetDataForMonth;
+            setBudgetCategories(prevData.budgetCategories || initialBudgetCategories);
+          } else {
+            setBudgetCategories(initialBudgetCategories);
+          }
+        } catch (e) {
+           setBudgetCategories(initialBudgetCategories);
         }
+      } else {
+        throw new Error('Failed to fetch data');
       }
     } catch (error) {
-      console.error("Failed to load data from Firestore:", error);
-      toast({ variant: "destructive", title: "Error Loading Data", description: "Could not fetch data from the database." });
+      console.error("Failed to load data:", error);
+      toast({ variant: "destructive", title: "Error Loading Data", description: "Could not fetch data from the server." });
       setIncomes([]);
       setBudgetCategories(initialBudgetCategories);
       setPayments([]);
@@ -90,19 +85,26 @@ export default function BudgetWisePage() {
   }, [currentDisplayMonth, loadDataForMonth]);
 
 
-  const saveDataToFirestore = useCallback(async () => {
+  const saveData = useCallback(async () => {
     if (!isClient) return;
     setIsSavingData(true);
-    const docId = getMonthFirestoreDocId(USER_ID, currentDisplayMonth);
+    const monthYear = format(currentDisplayMonth, 'yyyy-MM');
     const dataToSave: BudgetDataForMonth = { incomes, budgetCategories, payments };
     
     try {
-      const docRef = doc(db, "userBudgetData", docId);
-      await setDoc(docRef, dataToSave, { merge: true }); // merge:true to update existing or create new
-      toast({ title: "Data Saved!", description: `Your budget data for ${format(currentDisplayMonth, 'MMMM yyyy')} has been saved to the database.` });
+      const response = await fetch(`/api/budget-data/user/${USER_ID}/month/${monthYear}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dataToSave),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save data');
+      }
+      await response.json();
+      toast({ title: "Data Saved!", description: `Your budget data for ${format(currentDisplayMonth, 'MMMM yyyy')} has been saved.` });
     } catch (error) {
-      console.error("Failed to save data to Firestore:", error);
-      toast({ variant: "destructive", title: "Error Saving Data", description: "Could not save data to the database." });
+      console.error("Failed to save data:", error);
+      toast({ variant: "destructive", title: "Error Saving Data", description: "Could not save data to the server." });
     } finally {
       setIsSavingData(false);
     }
@@ -117,7 +119,6 @@ export default function BudgetWisePage() {
     setCurrentDisplayMonth(prev => addMonths(prev, 1));
   };
 
-  // Income Management
   const handleAddIncome = (income: IncomeSource) => {
     setIncomes(prev => [...prev, income]);
   };
@@ -125,7 +126,6 @@ export default function BudgetWisePage() {
     setIncomes(prev => prev.filter(inc => inc.id !== incomeId));
   };
 
-  // Budget Category Management
   const handleAddCategory = (category: BudgetCategory) => {
     setBudgetCategories(prev => [...prev, category]);
   };
@@ -134,7 +134,6 @@ export default function BudgetWisePage() {
     setPayments(prev => prev.filter(p => p.categoryId !== categoryId)); 
   };
 
-  // Payment Management
   const handleAddPayment = (payment: Payment) => {
     setPayments(prev => [...prev, payment]);
   };
@@ -163,7 +162,7 @@ export default function BudgetWisePage() {
       <main className="flex-grow container mx-auto px-4 py-8 space-y-8">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold font-headline text-primary">My Dashboard</h1>
-           <Button onClick={saveDataToFirestore} variant="outline" disabled={isSavingData}>
+           <Button onClick={saveData} variant="outline" disabled={isSavingData}>
             {isSavingData ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
              Save Data for {format(currentDisplayMonth, 'MMM yyyy')}
           </Button>

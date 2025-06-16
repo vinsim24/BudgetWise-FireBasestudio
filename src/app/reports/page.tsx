@@ -9,22 +9,20 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency, getIcon } from '@/lib/utils';
-import type { BudgetDataForMonth, ReportPeriodSummary, MonthlyDataForReport } from '@/lib/types';
+import type { ReportPeriodSummary, MonthlyDataForReport } from '@/lib/types';
 import Header from '@/components/budgetwise/header';
 import { BarChart, FileText, CalendarDays, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { format, getMonth, getYear, set, parse } from 'date-fns';
-import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { format, getMonth, getYear, set } from 'date-fns';
 
-const USER_ID = "defaultUser"; // Replace with actual user ID in a real app
+const USER_ID = "defaultUser"; 
 
 const ReportsPage: React.FC = () => {
   const [reportType, setReportType] = useState<'monthly' | 'yearly'>('monthly');
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | undefined>(undefined);
-  const [availableMonths, setAvailableMonths] = useState<number[]>([]); // 0-11 for Jan-Dec
-  const [selectedMonth, setSelectedMonth] = useState<number | undefined>(undefined); // 0-11
+  const [availableMonths, setAvailableMonths] = useState<number[]>([]); 
+  const [selectedMonth, setSelectedMonth] = useState<number | undefined>(undefined); 
   const [reportData, setReportData] = useState<ReportPeriodSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -34,60 +32,39 @@ const ReportsPage: React.FC = () => {
     setIsClient(true);
   }, []);
 
-  const getAllStoredDataFromFirestore = useCallback(async (): Promise<MonthlyDataForReport[]> => {
+  const fetchAllBudgetDataForUser = useCallback(async (): Promise<MonthlyDataForReport[]> => {
     if (!isClient) return [];
-    const data: MonthlyDataForReport[] = [];
-    
+    setIsFetchingInitialData(true);
     try {
-      const q = query(collection(db, "userBudgetData"), where("__name__", ">=", `${USER_ID}_`), where("__name__", "<", `${USER_ID}_\uf8ff`));
-      const querySnapshot = await getDocs(q);
-
-      querySnapshot.forEach((docSnap) => {
-        const docId = docSnap.id;
-        // Assuming docId format is "userId_YYYY-MM"
-        const parts = docId.split('_');
-        if (parts.length === 2 && parts[0] === USER_ID) {
-          const dateStr = parts[1];
-          const [yearStr, monthStr] = dateStr.split('-');
-          if (yearStr && monthStr) {
-            const year = parseInt(yearStr, 10);
-            const month = parseInt(monthStr, 10) -1; // Firestore month is 1-indexed, convert to 0-indexed
-             if (!isNaN(year) && !isNaN(month)) {
-              const docData = docSnap.data() as BudgetDataForMonth;
-              data.push({
-                year,
-                month, 
-                incomes: docData.incomes || [],
-                budgetCategories: docData.budgetCategories || [],
-                payments: docData.payments || [],
-              });
-            }
-          }
-        }
-      });
+      const response = await fetch(`/api/budget-data/user/${USER_ID}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch report data');
+      }
+      const data = await response.json() as MonthlyDataForReport[];
+      return data;
     } catch (error) {
-      console.error("Failed to fetch data from Firestore for reports:", error);
+      console.error("Failed to fetch data for reports:", error);
+      return [];
+    } finally {
+        setIsFetchingInitialData(false);
     }
-    return data;
   }, [isClient]);
 
 
   useEffect(() => {
     if (!isClient) return;
 
-    const fetchInitialData = async () => {
-      setIsFetchingInitialData(true);
-      const allData = await getAllStoredDataFromFirestore();
+    const fetchAndSetAvailableDates = async () => {
+      const allData = await fetchAllBudgetDataForUser();
       const years = Array.from(new Set(allData.map(d => d.year))).sort((a, b) => b - a);
       setAvailableYears(years);
       if (years.length > 0) {
         const currentYear = new Date().getFullYear();
         setSelectedYear(years.includes(currentYear) ? currentYear : years[0]);
       }
-      setIsFetchingInitialData(false);
     };
-    fetchInitialData();
-  }, [isClient, getAllStoredDataFromFirestore]);
+    fetchAndSetAvailableDates();
+  }, [isClient, fetchAllBudgetDataForUser]);
 
 
   useEffect(() => {
@@ -95,15 +72,14 @@ const ReportsPage: React.FC = () => {
       setAvailableMonths([]);
       return;
     }
-    // This effect relies on selectedYear being set after initial data fetch.
-    // We can optimize by passing allData from the initial fetch if needed, but this should work.
+    
     const updateMonths = async () => {
-        const allData = await getAllStoredDataFromFirestore(); // Re-fetch or use cached if available
+        const allData = await fetchAllBudgetDataForUser(); 
         const monthsForYear = Array.from(
           new Set(
             allData
               .filter(d => d.year === selectedYear)
-              .map(d => d.month) // 0-indexed
+              .map(d => d.month) 
           )
         ).sort((a, b) => a - b);
         setAvailableMonths(monthsForYear);
@@ -118,8 +94,10 @@ const ReportsPage: React.FC = () => {
             setSelectedMonth(undefined);
         }
     };
-    updateMonths();
-  }, [isClient, selectedYear, reportType, getAllStoredDataFromFirestore, isFetchingInitialData]);
+    if (selectedYear) { // Ensure selectedYear is set before fetching months
+        updateMonths();
+    }
+  }, [isClient, selectedYear, reportType, fetchAllBudgetDataForUser, isFetchingInitialData]);
 
 
   const generateReport = useCallback(async () => {
@@ -127,7 +105,7 @@ const ReportsPage: React.FC = () => {
     setIsLoading(true);
     setReportData(null);
 
-    const allData = await getAllStoredDataFromFirestore();
+    const allData = await fetchAllBudgetDataForUser();
     let periodLabel = "";
     let relevantData: MonthlyDataForReport[] = [];
 
@@ -202,7 +180,7 @@ const ReportsPage: React.FC = () => {
     });
 
     setIsLoading(false);
-  }, [isClient, reportType, selectedYear, selectedMonth, getAllStoredDataFromFirestore]);
+  }, [isClient, reportType, selectedYear, selectedMonth, fetchAllBudgetDataForUser]);
 
   if (!isClient || isFetchingInitialData) {
      return (
@@ -222,7 +200,7 @@ const ReportsPage: React.FC = () => {
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="font-headline flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" />Financial Reports</CardTitle>
-            <CardDescription>Generate monthly or yearly financial summaries from stored data.</CardDescription>
+            <CardDescription>Generate monthly or yearly financial summaries from your data.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
@@ -257,6 +235,7 @@ const ReportsPage: React.FC = () => {
                   onValueChange={(val) => {
                     setSelectedYear(Number(val));
                     setReportData(null);
+                    //setSelectedMonth(undefined); // Reset month when year changes
                   }}
                   disabled={availableYears.length === 0}
                 >
