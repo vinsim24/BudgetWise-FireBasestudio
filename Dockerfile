@@ -22,7 +22,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Disable Next.js telemetry during build
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- Runner ----
@@ -30,9 +30,9 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 # Disable Next.js telemetry during runtime
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Copy the standalone output created by `output: 'standalone'` in next.config.js
 COPY --from=builder /app/.next/standalone ./
@@ -45,7 +45,7 @@ EXPOSE 3000
 
 # Set the PORT environment variable. Next.js standalone mode will use this.
 # The Next.js default production port is 3000.
-ENV PORT 3000
+ENV PORT=3000
 
 # The server.js file is created by Next.js in standalone output mode.
 CMD ["node", "server.js"]
