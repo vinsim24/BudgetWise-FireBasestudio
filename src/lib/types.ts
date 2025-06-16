@@ -24,11 +24,32 @@ export interface Payment {
   isTransferred: boolean;
 }
 
-export type BudgetData = {
-  income: IncomeSource[];
+export type BudgetDataForMonth = {
+  incomes: IncomeSource[];
   budgetCategories: BudgetCategory[];
   payments: Payment[];
 };
 
-// Removed AiSuggestion and AiOverspendingResult types as they are no longer needed.
-// Also removed related input/output types for the deleted AI flows.
+
+// Types for the Reports Page
+export interface MonthlyDataForReport extends BudgetDataForMonth {
+  year: number;
+  month: number; // 0-indexed (0 for January, 11 for December)
+}
+
+export interface ReportCategorySummary {
+  categoryName: string;
+  iconName: string;
+  totalAllocated: number;
+  totalSpentInPeriod: number;
+  remainingInCategory: number;
+}
+
+export interface ReportPeriodSummary {
+  periodLabel: string;
+  totalIncome: number;
+  totalBudgeted: number;
+  totalSpent: number;
+  remainingBalance: number;
+  categorySummaries: ReportCategorySummary[];
+}

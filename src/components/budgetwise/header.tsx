@@ -2,7 +2,7 @@ import React from 'react';
 import Logo from './logo';
 import { ThemeToggle } from './theme-toggle';
 import { Button } from '@/components/ui/button';
-import { User } from 'lucide-react';
+import { User, FileText } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import Link from 'next/link';
 
 
 const Header: React.FC = () => {
@@ -41,6 +42,12 @@ const Header: React.FC = () => {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem>Profile</DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/reports">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Reports
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem>Settings</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem>Log out</DropdownMenuItem>
