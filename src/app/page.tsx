@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -7,11 +8,10 @@ import IncomeManager from '@/components/budgetwise/income-manager';
 import BudgetManager from '@/components/budgetwise/budget-manager';
 import PaymentManager from '@/components/budgetwise/payment-manager';
 import SpendingAnalysis from '@/components/budgetwise/spending-analysis';
-import AiBudgetAdvisor from '@/components/budgetwise/ai-budget-advisor';
 import type { IncomeSource, BudgetCategory, Payment } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 
 // Sample Data (can be removed or modified)
 const initialIncomes: IncomeSource[] = [
@@ -128,12 +128,9 @@ export default function BudgetWisePage() {
         <DashboardSummary incomes={incomes} budgetCategories={budgetCategories} payments={payments} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          <div className="lg:col-span-2 space-y-8">
+          <div className="lg:col-span-3 space-y-8"> {/* Adjusted to lg:col-span-3 */}
             <IncomeManager incomes={incomes} onAddIncome={handleAddIncome} onDeleteIncome={handleDeleteIncome} />
             <BudgetManager budgetCategories={budgetCategories} payments={payments} onAddCategory={handleAddCategory} onDeleteCategory={handleDeleteCategory} />
-          </div>
-          <div className="lg:col-span-1 space-y-8 lg:sticky lg:top-24"> {/* Sticky AI Advisor */}
-            <AiBudgetAdvisor incomes={incomes} budgetCategories={budgetCategories} payments={payments} />
           </div>
         </div>
         

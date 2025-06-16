@@ -30,13 +30,5 @@ export type BudgetData = {
   payments: Payment[];
 };
 
-export type AiSuggestion = {
-  category: string;
-  suggestion: string;
-  impact: string;
-};
-
-export type AiOverspendingResult = {
-  overspendingCategories: string[];
-  suggestions: string;
-};
+// Removed AiSuggestion and AiOverspendingResult types as they are no longer needed.
+// Also removed related input/output types for the deleted AI flows.
