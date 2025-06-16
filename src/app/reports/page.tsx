@@ -9,13 +9,15 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency, getIcon } from '@/lib/utils';
-import type { IncomeSource, BudgetCategory, Payment, ReportPeriodSummary, MonthlyDataForReport } from '@/lib/types';
+import type { BudgetDataForMonth, ReportPeriodSummary, MonthlyDataForReport } from '@/lib/types';
 import Header from '@/components/budgetwise/header';
-import { BarChart, FileText, CalendarDays } from 'lucide-react';
+import { BarChart, FileText, CalendarDays, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format, getMonth, getYear, set, parse } from 'date-fns';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
-const getMonthStorageKeyPrefix = (): string => 'budgetwise_data_';
+const USER_ID = "defaultUser"; // Replace with actual user ID in a real app
 
 const ReportsPage: React.FC = () => {
   const [reportType, setReportType] = useState<'monthly' | 'yearly'>('monthly');
@@ -26,84 +28,106 @@ const ReportsPage: React.FC = () => {
   const [reportData, setReportData] = useState<ReportPeriodSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [isFetchingInitialData, setIsFetchingInitialData] = useState(true);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  const getAllStoredData = useCallback((): MonthlyDataForReport[] => {
+  const getAllStoredDataFromFirestore = useCallback(async (): Promise<MonthlyDataForReport[]> => {
     if (!isClient) return [];
     const data: MonthlyDataForReport[] = [];
-    const prefix = getMonthStorageKeyPrefix();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(prefix)) {
-        try {
-          const monthStr = key.substring(prefix.length); // YYYY-MM
-          const [year, month] = monthStr.split('-').map(Number);
-          const storedValue = localStorage.getItem(key);
-          if (storedValue) {
-            const parsedData = JSON.parse(storedValue);
-            data.push({
-              year,
-              month: month - 1, // Convert to 0-indexed month
-              incomes: parsedData.incomes || [],
-              budgetCategories: parsedData.budgetCategories || [],
-              payments: parsedData.payments || [],
-            });
+    
+    try {
+      const q = query(collection(db, "userBudgetData"), where("__name__", ">=", `${USER_ID}_`), where("__name__", "<", `${USER_ID}_\uf8ff`));
+      const querySnapshot = await getDocs(q);
+
+      querySnapshot.forEach((docSnap) => {
+        const docId = docSnap.id;
+        // Assuming docId format is "userId_YYYY-MM"
+        const parts = docId.split('_');
+        if (parts.length === 2 && parts[0] === USER_ID) {
+          const dateStr = parts[1];
+          const [yearStr, monthStr] = dateStr.split('-');
+          if (yearStr && monthStr) {
+            const year = parseInt(yearStr, 10);
+            const month = parseInt(monthStr, 10) -1; // Firestore month is 1-indexed, convert to 0-indexed
+             if (!isNaN(year) && !isNaN(month)) {
+              const docData = docSnap.data() as BudgetDataForMonth;
+              data.push({
+                year,
+                month, 
+                incomes: docData.incomes || [],
+                budgetCategories: docData.budgetCategories || [],
+                payments: docData.payments || [],
+              });
+            }
           }
-        } catch (error) {
-          console.error(`Failed to parse data for key ${key}:`, error);
         }
-      }
+      });
+    } catch (error) {
+      console.error("Failed to fetch data from Firestore for reports:", error);
     }
     return data;
   }, [isClient]);
 
-  useEffect(() => {
-    if (!isClient) return;
-    const allData = getAllStoredData();
-    const years = Array.from(new Set(allData.map(d => d.year))).sort((a, b) => b - a);
-    setAvailableYears(years);
-    if (years.length > 0) {
-      const currentYear = new Date().getFullYear();
-      setSelectedYear(years.includes(currentYear) ? currentYear : years[0]);
-    }
-  }, [isClient, getAllStoredData]);
 
   useEffect(() => {
-    if (!isClient || !selectedYear) {
+    if (!isClient) return;
+
+    const fetchInitialData = async () => {
+      setIsFetchingInitialData(true);
+      const allData = await getAllStoredDataFromFirestore();
+      const years = Array.from(new Set(allData.map(d => d.year))).sort((a, b) => b - a);
+      setAvailableYears(years);
+      if (years.length > 0) {
+        const currentYear = new Date().getFullYear();
+        setSelectedYear(years.includes(currentYear) ? currentYear : years[0]);
+      }
+      setIsFetchingInitialData(false);
+    };
+    fetchInitialData();
+  }, [isClient, getAllStoredDataFromFirestore]);
+
+
+  useEffect(() => {
+    if (!isClient || !selectedYear || isFetchingInitialData) {
       setAvailableMonths([]);
       return;
     }
-    const allData = getAllStoredData();
-    const monthsForYear = Array.from(
-      new Set(
-        allData
-          .filter(d => d.year === selectedYear)
-          .map(d => d.month) // 0-indexed
-      )
-    ).sort((a, b) => a - b);
-    setAvailableMonths(monthsForYear);
-    if (reportType === 'monthly' && monthsForYear.length > 0) {
-        const currentMonth = new Date().getMonth();
-        if(getYear(new Date()) === selectedYear && monthsForYear.includes(currentMonth)) {
-            setSelectedMonth(currentMonth);
-        } else {
-            setSelectedMonth(monthsForYear[0]);
+    // This effect relies on selectedYear being set after initial data fetch.
+    // We can optimize by passing allData from the initial fetch if needed, but this should work.
+    const updateMonths = async () => {
+        const allData = await getAllStoredDataFromFirestore(); // Re-fetch or use cached if available
+        const monthsForYear = Array.from(
+          new Set(
+            allData
+              .filter(d => d.year === selectedYear)
+              .map(d => d.month) // 0-indexed
+          )
+        ).sort((a, b) => a - b);
+        setAvailableMonths(monthsForYear);
+        if (reportType === 'monthly' && monthsForYear.length > 0) {
+            const currentMonth = new Date().getMonth();
+            if(getYear(new Date()) === selectedYear && monthsForYear.includes(currentMonth)) {
+                setSelectedMonth(currentMonth);
+            } else {
+                setSelectedMonth(monthsForYear[0]);
+            }
+        } else if (reportType === 'monthly') {
+            setSelectedMonth(undefined);
         }
-    } else if (reportType === 'monthly') {
-        setSelectedMonth(undefined);
-    }
-  }, [isClient, selectedYear, reportType, getAllStoredData]);
+    };
+    updateMonths();
+  }, [isClient, selectedYear, reportType, getAllStoredDataFromFirestore, isFetchingInitialData]);
 
 
-  const generateReport = useCallback(() => {
+  const generateReport = useCallback(async () => {
     if (!isClient) return;
     setIsLoading(true);
     setReportData(null);
 
-    const allData = getAllStoredData();
+    const allData = await getAllStoredDataFromFirestore();
     let periodLabel = "";
     let relevantData: MonthlyDataForReport[] = [];
 
@@ -141,7 +165,7 @@ const ReportsPage: React.FC = () => {
       monthData.incomes.forEach(inc => totalIncome += inc.amount);
       monthData.budgetCategories.forEach(cat => {
         totalBudgeted += cat.allocatedAmount;
-        const existingCat = categoryMap.get(cat.name); // Group by name, assuming names are unique identifiers for aggregation
+        const existingCat = categoryMap.get(cat.name);
         if (existingCat) {
           existingCat.allocated += cat.allocatedAmount;
         } else {
@@ -156,7 +180,6 @@ const ReportsPage: React.FC = () => {
           if (reportCat) {
             reportCat.spent += pay.amount;
           }
-          // If category for payment doesn't exist in budget (e.g. old payment, category deleted), it's still part of totalSpent
         }
       });
     });
@@ -179,17 +202,14 @@ const ReportsPage: React.FC = () => {
     });
 
     setIsLoading(false);
-  }, [isClient, reportType, selectedYear, selectedMonth, getAllStoredData]);
+  }, [isClient, reportType, selectedYear, selectedMonth, getAllStoredDataFromFirestore]);
 
-  if (!isClient) {
+  if (!isClient || isFetchingInitialData) {
      return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center">
-          <svg className="animate-spin h-10 w-10 text-primary mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p className="text-lg text-foreground font-headline">Loading Reports...</p>
+          <Loader2 className="animate-spin h-10 w-10 text-primary mb-4" />
+          <p className="text-lg text-foreground font-headline">Loading Report Data...</p>
         </div>
       </div>
     );
@@ -202,7 +222,7 @@ const ReportsPage: React.FC = () => {
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="font-headline flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" />Financial Reports</CardTitle>
-            <CardDescription>Generate monthly or yearly financial summaries.</CardDescription>
+            <CardDescription>Generate monthly or yearly financial summaries from stored data.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
@@ -214,7 +234,7 @@ const ReportsPage: React.FC = () => {
                   value={reportType}
                   onValueChange={(value: 'monthly' | 'yearly') => {
                     setReportType(value);
-                    setReportData(null); // Clear previous report
+                    setReportData(null); 
                     if (value === 'yearly') setSelectedMonth(undefined);
                   }}
                   className="flex space-x-4"
@@ -247,6 +267,7 @@ const ReportsPage: React.FC = () => {
                     {availableYears.map(year => (
                       <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
                     ))}
+                    {availableYears.length === 0 && <SelectItem value="no-data" disabled>No data available</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>
@@ -271,13 +292,15 @@ const ReportsPage: React.FC = () => {
                           {format(set(new Date(), { month: monthIndex }), 'MMMM')}
                         </SelectItem>
                       ))}
+                      {availableMonths.length === 0 && <SelectItem value="no-data" disabled>No data for this year</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
               )}
             </div>
             <Button onClick={generateReport} disabled={isLoading || !selectedYear || (reportType === 'monthly' && selectedMonth === undefined)} className="w-full md:w-auto">
-              {isLoading ? "Generating..." : "Generate Report"} <BarChart className="ml-2 h-4 w-4" />
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart className="mr-2 h-4 w-4" />}
+               Generate Report
             </Button>
           </CardContent>
         </Card>
@@ -328,7 +351,7 @@ const ReportsPage: React.FC = () => {
                             <TableRow key={cat.categoryName}>
                               <TableCell className="font-medium">
                                 <div className="flex items-center">
-                                  <IconCmp className="mr-2 h-5 w-5 text-muted-foreground" />
+                                  {IconCmp && <IconCmp className="mr-2 h-5 w-5 text-muted-foreground" />}
                                   {cat.categoryName}
                                 </div>
                               </TableCell>
@@ -354,7 +377,7 @@ const ReportsPage: React.FC = () => {
          {!reportData && !isLoading && (
             <Card className="shadow-lg">
                 <CardContent className="pt-6">
-                    <p className="text-muted-foreground text-center">Select report parameters and click "Generate Report" to view data.</p>
+                    <p className="text-muted-foreground text-center">Select report parameters and click "Generate Report" to view data. If no years/months are available, add some data on the main dashboard first.</p>
                 </CardContent>
             </Card>
         )}
@@ -367,4 +390,3 @@ const ReportsPage: React.FC = () => {
 };
 
 export default ReportsPage;
-

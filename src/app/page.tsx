@@ -8,13 +8,14 @@ import IncomeManager from '@/components/budgetwise/income-manager';
 import BudgetManager from '@/components/budgetwise/budget-manager';
 import PaymentManager from '@/components/budgetwise/payment-manager';
 import SpendingAnalysis from '@/components/budgetwise/spending-analysis';
-import type { IncomeSource, BudgetCategory, Payment } from '@/lib/types';
+import type { IncomeSource, BudgetCategory, Payment, BudgetDataForMonth } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
-import { Save, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Save, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format, subMonths, addMonths } from 'date-fns';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
-// Sample Data (can be removed or modified)
 const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat1', name: 'Rent/Mortgage', allocatedAmount: 1500, iconName: 'Home' },
   { id: 'cat2', name: 'Groceries', allocatedAmount: 400, iconName: 'ShoppingCart' },
@@ -23,75 +24,88 @@ const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat5', name: 'Entertainment', allocatedAmount: 200, iconName: 'Film' },
 ];
 
-const getMonthStorageKey = (date: Date): string => {
-  return `budgetwise_data_${format(date, 'yyyy-MM')}`;
+const USER_ID = "defaultUser"; // Replace with actual user ID in a real app
+
+const getMonthFirestoreDocId = (userId: string, date: Date): string => {
+  return `${userId}_${format(date, 'yyyy-MM')}`;
 };
 
 export default function BudgetWisePage() {
   const [currentDisplayMonth, setCurrentDisplayMonth] = useState<Date>(new Date());
   const [incomes, setIncomes] = useState<IncomeSource[]>([]);
-  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>(initialBudgetCategories);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [isClient, setIsClient] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isSavingData, setIsSavingData] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  useEffect(() => {
+  const loadDataForMonth = useCallback(async (monthDate: Date) => {
     if (!isClient) return;
+    setIsLoadingData(true);
 
-    const monthKey = getMonthStorageKey(currentDisplayMonth);
-    const storedDataForMonth = localStorage.getItem(monthKey);
+    const docId = getMonthFirestoreDocId(USER_ID, monthDate);
+    try {
+      const docRef = doc(db, "userBudgetData", docId);
+      const docSnap = await getDoc(docRef);
 
-    if (storedDataForMonth) {
-      try {
-        const data = JSON.parse(storedDataForMonth);
+      if (docSnap.exists()) {
+        const data = docSnap.data() as BudgetDataForMonth;
         setIncomes(data.incomes || []);
         setBudgetCategories(data.budgetCategories || initialBudgetCategories);
         setPayments(data.payments || []);
-      } catch (error) {
-        console.error("Failed to parse data from localStorage:", error);
-        // Fallback to default state for the month
+      } else {
+        // New month or first load for this month
         setIncomes([]);
         setPayments([]);
-        loadDefaultBudgetCategoriesForMonth();
+        // Attempt to load budget categories from previous month
+        const prevMonthDate = subMonths(monthDate, 1);
+        const prevMonthDocId = getMonthFirestoreDocId(USER_ID, prevMonthDate);
+        const prevDocRef = doc(db, "userBudgetData", prevMonthDocId);
+        const prevDocSnap = await getDoc(prevDocRef);
+        if (prevDocSnap.exists()) {
+          const prevData = prevDocSnap.data() as BudgetDataForMonth;
+          setBudgetCategories(prevData.budgetCategories || initialBudgetCategories);
+        } else {
+          setBudgetCategories(initialBudgetCategories);
+        }
       }
-    } else {
-      // New month or first load for this month
+    } catch (error) {
+      console.error("Failed to load data from Firestore:", error);
+      toast({ variant: "destructive", title: "Error Loading Data", description: "Could not fetch data from the database." });
       setIncomes([]);
-      setPayments([]);
-      loadDefaultBudgetCategoriesForMonth();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDisplayMonth, isClient]);
-
-  const loadDefaultBudgetCategoriesForMonth = useCallback(() => {
-    const prevMonthDate = subMonths(currentDisplayMonth, 1);
-    const prevMonthKey = getMonthStorageKey(prevMonthDate);
-    const storedPrevMonthData = localStorage.getItem(prevMonthKey);
-
-    if (storedPrevMonthData) {
-      try {
-        const prevData = JSON.parse(storedPrevMonthData);
-        setBudgetCategories(prevData.budgetCategories || initialBudgetCategories);
-      } catch (error) {
-        console.error("Failed to parse previous month data:", error);
-        setBudgetCategories(initialBudgetCategories);
-      }
-    } else {
       setBudgetCategories(initialBudgetCategories);
+      setPayments([]);
+    } finally {
+      setIsLoadingData(false);
     }
-  }, [currentDisplayMonth]);
+  }, [isClient, toast]);
+
+  useEffect(() => {
+    loadDataForMonth(currentDisplayMonth);
+  }, [currentDisplayMonth, loadDataForMonth]);
 
 
-  const saveDataToLocalStorage = useCallback(() => {
+  const saveDataToFirestore = useCallback(async () => {
     if (!isClient) return;
-    const monthKey = getMonthStorageKey(currentDisplayMonth);
-    const dataToSave = { incomes, budgetCategories, payments };
-    localStorage.setItem(monthKey, JSON.stringify(dataToSave));
-    toast({ title: "Data Saved!", description: `Your budget data for ${format(currentDisplayMonth, 'MMMM yyyy')} has been saved locally.` });
+    setIsSavingData(true);
+    const docId = getMonthFirestoreDocId(USER_ID, currentDisplayMonth);
+    const dataToSave: BudgetDataForMonth = { incomes, budgetCategories, payments };
+    
+    try {
+      const docRef = doc(db, "userBudgetData", docId);
+      await setDoc(docRef, dataToSave, { merge: true }); // merge:true to update existing or create new
+      toast({ title: "Data Saved!", description: `Your budget data for ${format(currentDisplayMonth, 'MMMM yyyy')} has been saved to the database.` });
+    } catch (error) {
+      console.error("Failed to save data to Firestore:", error);
+      toast({ variant: "destructive", title: "Error Saving Data", description: "Could not save data to the database." });
+    } finally {
+      setIsSavingData(false);
+    }
   }, [incomes, budgetCategories, payments, currentDisplayMonth, toast, isClient]);
 
 
@@ -106,48 +120,38 @@ export default function BudgetWisePage() {
   // Income Management
   const handleAddIncome = (income: IncomeSource) => {
     setIncomes(prev => [...prev, income]);
-    toast({ title: "Income Added", description: `${income.name} has been added for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeleteIncome = (incomeId: string) => {
     setIncomes(prev => prev.filter(inc => inc.id !== incomeId));
-    toast({ title: "Income Deleted", description: `Income source has been removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
 
   // Budget Category Management
   const handleAddCategory = (category: BudgetCategory) => {
     setBudgetCategories(prev => [...prev, category]);
-    toast({ title: "Budget Category Added", description: `${category.name} has been added for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeleteCategory = (categoryId: string) => {
     setBudgetCategories(prev => prev.filter(cat => cat.id !== categoryId));
-    setPayments(prev => prev.filter(p => p.categoryId !== categoryId)); // Also remove payments for this category in the current month
-    toast({ title: "Budget Category Deleted", description: `Category and associated payments removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
+    setPayments(prev => prev.filter(p => p.categoryId !== categoryId)); 
   };
 
   // Payment Management
   const handleAddPayment = (payment: Payment) => {
     setPayments(prev => [...prev, payment]);
-    toast({ title: "Payment Recorded", description: `${payment.description} has been recorded for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeletePayment = (paymentId: string) => {
     setPayments(prev => prev.filter(p => p.id !== paymentId));
-    toast({ title: "Payment Deleted", description: `Payment record has been removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
    const handleUpdatePayment = (updatedPayment: Payment) => {
     setPayments(prev => prev.map(p => p.id === updatedPayment.id ? updatedPayment : p));
-    toast({ title: "Payment Updated", description: `${updatedPayment.description} status changed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
 
 
-  if (!isClient) {
+  if (!isClient || isLoadingData) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center">
-          <svg className="animate-spin h-10 w-10 text-primary mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p className="text-lg text-foreground font-headline">Loading BudgetWise...</p>
+          <Loader2 className="animate-spin h-10 w-10 text-primary mb-4" />
+          <p className="text-lg text-foreground font-headline">Loading BudgetWise Data...</p>
         </div>
       </div>
     );
@@ -159,20 +163,20 @@ export default function BudgetWisePage() {
       <main className="flex-grow container mx-auto px-4 py-8 space-y-8">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold font-headline text-primary">My Dashboard</h1>
-           <Button onClick={saveDataToLocalStorage} variant="outline">
-            <Save className="mr-2 h-4 w-4" /> Save Data for {format(currentDisplayMonth, 'MMM yyyy')}
+           <Button onClick={saveDataToFirestore} variant="outline" disabled={isSavingData}>
+            {isSavingData ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+             Save Data for {format(currentDisplayMonth, 'MMM yyyy')}
           </Button>
         </div>
 
-        {/* Month Navigation */}
         <div className="flex items-center justify-center space-x-4 my-6">
-          <Button onClick={handlePreviousMonth} variant="outline" aria-label="Previous month">
+          <Button onClick={handlePreviousMonth} variant="outline" aria-label="Previous month" disabled={isLoadingData || isSavingData}>
             <ChevronLeft className="h-5 w-5" />
           </Button>
           <span className="text-xl font-semibold font-headline text-foreground tabular-nums">
             {format(currentDisplayMonth, 'MMMM yyyy')}
           </span>
-          <Button onClick={handleNextMonth} variant="outline" aria-label="Next month">
+          <Button onClick={handleNextMonth} variant="outline" aria-label="Next month" disabled={isLoadingData || isSavingData}>
             <ChevronRight className="h-5 w-5" />
           </Button>
         </div>
