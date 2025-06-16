@@ -11,14 +11,10 @@ import SpendingAnalysis from '@/components/budgetwise/spending-analysis';
 import type { IncomeSource, BudgetCategory, Payment } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
-import { Save } from 'lucide-react';
+import { Save, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, subMonths, addMonths } from 'date-fns';
 
 // Sample Data (can be removed or modified)
-const initialIncomes: IncomeSource[] = [
-  { id: 'inc1', name: 'Monthly Salary', amount: 5000, dateAdded: new Date().toISOString() },
-  { id: 'inc2', name: 'Freelance Project', amount: 750, dateAdded: new Date().toISOString() },
-];
-
 const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat1', name: 'Rent/Mortgage', allocatedAmount: 1500, iconName: 'Home' },
   { id: 'cat2', name: 'Groceries', allocatedAmount: 400, iconName: 'ShoppingCart' },
@@ -27,15 +23,12 @@ const initialBudgetCategories: BudgetCategory[] = [
   { id: 'cat5', name: 'Entertainment', allocatedAmount: 200, iconName: 'Film' },
 ];
 
-const initialPayments: Payment[] = [
-  { id: 'pay1', categoryId: 'cat1', description: 'Monthly Rent', amount: 1500, date: new Date(Date.now() - 2*24*60*60*1000).toISOString(), isTransferred: true },
-  { id: 'pay2', categoryId: 'cat2', description: 'Weekly Groceries', amount: 85.50, date: new Date(Date.now() - 1*24*60*60*1000).toISOString(), isTransferred: true },
-  { id: 'pay3', categoryId: 'cat3', description: 'Electricity Bill', amount: 75.20, date: new Date().toISOString(), isTransferred: false },
-  { id: 'pay4', categoryId: 'cat5', description: 'Movie Tickets', amount: 30.00, date: new Date().toISOString(), isTransferred: true },
-];
-
+const getMonthStorageKey = (date: Date): string => {
+  return `budgetwise_data_${format(date, 'yyyy-MM')}`;
+};
 
 export default function BudgetWisePage() {
+  const [currentDisplayMonth, setCurrentDisplayMonth] = useState<Date>(new Date());
   const [incomes, setIncomes] = useState<IncomeSource[]>([]);
   const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -44,63 +37,109 @@ export default function BudgetWisePage() {
 
   useEffect(() => {
     setIsClient(true);
-    // Load data from localStorage or use initial sample data
-    const storedIncomes = localStorage.getItem('budgetwise_incomes');
-    const storedBudgets = localStorage.getItem('budgetwise_budgets');
-    const storedPayments = localStorage.getItem('budgetwise_payments');
-
-    setIncomes(storedIncomes ? JSON.parse(storedIncomes) : initialIncomes);
-    setBudgetCategories(storedBudgets ? JSON.parse(storedBudgets) : initialBudgetCategories);
-    setPayments(storedPayments ? JSON.parse(storedPayments) : initialPayments);
   }, []);
 
-  const saveDataToLocalStorage = useCallback(() => {
-    localStorage.setItem('budgetwise_incomes', JSON.stringify(incomes));
-    localStorage.setItem('budgetwise_budgets', JSON.stringify(budgetCategories));
-    localStorage.setItem('budgetwise_payments', JSON.stringify(payments));
-    toast({ title: "Data Saved!", description: "Your budget data has been saved locally." });
-  }, [incomes, budgetCategories, payments, toast]);
+  useEffect(() => {
+    if (!isClient) return;
 
+    const monthKey = getMonthStorageKey(currentDisplayMonth);
+    const storedDataForMonth = localStorage.getItem(monthKey);
+
+    if (storedDataForMonth) {
+      try {
+        const data = JSON.parse(storedDataForMonth);
+        setIncomes(data.incomes || []);
+        setBudgetCategories(data.budgetCategories || initialBudgetCategories);
+        setPayments(data.payments || []);
+      } catch (error) {
+        console.error("Failed to parse data from localStorage:", error);
+        // Fallback to default state for the month
+        setIncomes([]);
+        setPayments([]);
+        loadDefaultBudgetCategoriesForMonth();
+      }
+    } else {
+      // New month or first load for this month
+      setIncomes([]);
+      setPayments([]);
+      loadDefaultBudgetCategoriesForMonth();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDisplayMonth, isClient]);
+
+  const loadDefaultBudgetCategoriesForMonth = useCallback(() => {
+    const prevMonthDate = subMonths(currentDisplayMonth, 1);
+    const prevMonthKey = getMonthStorageKey(prevMonthDate);
+    const storedPrevMonthData = localStorage.getItem(prevMonthKey);
+
+    if (storedPrevMonthData) {
+      try {
+        const prevData = JSON.parse(storedPrevMonthData);
+        setBudgetCategories(prevData.budgetCategories || initialBudgetCategories);
+      } catch (error) {
+        console.error("Failed to parse previous month data:", error);
+        setBudgetCategories(initialBudgetCategories);
+      }
+    } else {
+      setBudgetCategories(initialBudgetCategories);
+    }
+  }, [currentDisplayMonth]);
+
+
+  const saveDataToLocalStorage = useCallback(() => {
+    if (!isClient) return;
+    const monthKey = getMonthStorageKey(currentDisplayMonth);
+    const dataToSave = { incomes, budgetCategories, payments };
+    localStorage.setItem(monthKey, JSON.stringify(dataToSave));
+    toast({ title: "Data Saved!", description: `Your budget data for ${format(currentDisplayMonth, 'MMMM yyyy')} has been saved locally.` });
+  }, [incomes, budgetCategories, payments, currentDisplayMonth, toast, isClient]);
+
+
+  const handlePreviousMonth = () => {
+    setCurrentDisplayMonth(prev => subMonths(prev, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDisplayMonth(prev => addMonths(prev, 1));
+  };
 
   // Income Management
   const handleAddIncome = (income: IncomeSource) => {
     setIncomes(prev => [...prev, income]);
-    toast({ title: "Income Added", description: `${income.name} has been added.` });
+    toast({ title: "Income Added", description: `${income.name} has been added for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeleteIncome = (incomeId: string) => {
     setIncomes(prev => prev.filter(inc => inc.id !== incomeId));
-    toast({ title: "Income Deleted", description: "Income source has been removed." });
+    toast({ title: "Income Deleted", description: `Income source has been removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
 
   // Budget Category Management
   const handleAddCategory = (category: BudgetCategory) => {
     setBudgetCategories(prev => [...prev, category]);
-    toast({ title: "Budget Category Added", description: `${category.name} has been added.` });
+    toast({ title: "Budget Category Added", description: `${category.name} has been added for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeleteCategory = (categoryId: string) => {
     setBudgetCategories(prev => prev.filter(cat => cat.id !== categoryId));
-    // Optionally, remove payments associated with this category or reassign them
-    setPayments(prev => prev.filter(p => p.categoryId !== categoryId));
-    toast({ title: "Budget Category Deleted", description: "Category and associated payments removed." });
+    setPayments(prev => prev.filter(p => p.categoryId !== categoryId)); // Also remove payments for this category in the current month
+    toast({ title: "Budget Category Deleted", description: `Category and associated payments removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
 
   // Payment Management
   const handleAddPayment = (payment: Payment) => {
     setPayments(prev => [...prev, payment]);
-    toast({ title: "Payment Recorded", description: `${payment.description} has been recorded.` });
+    toast({ title: "Payment Recorded", description: `${payment.description} has been recorded for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
   const handleDeletePayment = (paymentId: string) => {
     setPayments(prev => prev.filter(p => p.id !== paymentId));
-    toast({ title: "Payment Deleted", description: "Payment record has been removed." });
+    toast({ title: "Payment Deleted", description: `Payment record has been removed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
    const handleUpdatePayment = (updatedPayment: Payment) => {
     setPayments(prev => prev.map(p => p.id === updatedPayment.id ? updatedPayment : p));
-    toast({ title: "Payment Updated", description: `${updatedPayment.description} status changed.` });
+    toast({ title: "Payment Updated", description: `${updatedPayment.description} status changed for ${format(currentDisplayMonth, 'MMMM yyyy')}.` });
   };
 
 
   if (!isClient) {
-    // Render a loading state or null on the server to avoid hydration mismatch
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center">
@@ -121,14 +160,27 @@ export default function BudgetWisePage() {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold font-headline text-primary">My Dashboard</h1>
            <Button onClick={saveDataToLocalStorage} variant="outline">
-            <Save className="mr-2 h-4 w-4" /> Save Data
+            <Save className="mr-2 h-4 w-4" /> Save Data for {format(currentDisplayMonth, 'MMM yyyy')}
+          </Button>
+        </div>
+
+        {/* Month Navigation */}
+        <div className="flex items-center justify-center space-x-4 my-6">
+          <Button onClick={handlePreviousMonth} variant="outline" aria-label="Previous month">
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <span className="text-xl font-semibold font-headline text-foreground tabular-nums">
+            {format(currentDisplayMonth, 'MMMM yyyy')}
+          </span>
+          <Button onClick={handleNextMonth} variant="outline" aria-label="Next month">
+            <ChevronRight className="h-5 w-5" />
           </Button>
         </div>
         
         <DashboardSummary incomes={incomes} budgetCategories={budgetCategories} payments={payments} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          <div className="lg:col-span-3 space-y-8"> {/* Adjusted to lg:col-span-3 */}
+          <div className="lg:col-span-3 space-y-8">
             <IncomeManager incomes={incomes} onAddIncome={handleAddIncome} onDeleteIncome={handleDeleteIncome} />
             <BudgetManager budgetCategories={budgetCategories} payments={payments} onAddCategory={handleAddCategory} onDeleteCategory={handleDeleteCategory} />
           </div>
