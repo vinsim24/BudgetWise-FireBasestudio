@@ -18,6 +18,17 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Prevent bundling of Node.js specific modules like 'async_hooks' on the client.
+      // This module is sometimes pulled in by OpenTelemetry, which Genkit might use.
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        async_hooks: false,
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
